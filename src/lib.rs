@@ -5,7 +5,7 @@ use std::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Player {
+pub enum Player {
     White,
     Black,
 }
@@ -20,7 +20,7 @@ impl fmt::Display for Player {
 }
 
 impl Player {
-    fn next(self) -> Player {
+    pub fn next(self) -> Player {
         match self {
             Self::White => Self::Black,
             Self::Black => Self::White,
@@ -29,7 +29,7 @@ impl Player {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Dir {
+pub enum Dir {
     North,
     East,
     South,
@@ -37,13 +37,13 @@ enum Dir {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Loc {
-    row: usize,
-    col: usize,
+pub struct Loc {
+    pub row: usize,
+    pub col: usize,
 }
 
 impl Loc {
-    fn move_in_by(&self, dir: Dir, count: usize) -> Loc {
+    pub fn move_in_by(&self, dir: Dir, count: usize) -> Loc {
         match dir {
             Dir::North => Loc {
                 row: self.row - count,
@@ -64,13 +64,13 @@ impl Loc {
         }
     }
 
-    fn move_in(&self, dir: Dir) -> Loc {
+    pub fn move_in(&self, dir: Dir) -> Loc {
         self.move_in_by(dir, 1)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-enum StoneType {
+pub enum StoneType {
     Flat,
     Standing,
     Capstone,
@@ -99,7 +99,7 @@ impl fmt::Display for Stone {
 }
 
 #[derive(Debug)]
-enum Turn {
+pub enum Turn {
     Place {
         loc: Loc,
         player: Player,
@@ -109,12 +109,13 @@ enum Turn {
         loc: Loc,
         player: Player,
         dir: Dir,
-        stacks: Vec<usize>,
+        total: usize,
+        drops: Vec<usize>,
     },
 }
 
 impl Turn {
-    fn player(&self) -> Player {
+    pub fn player(&self) -> Player {
         match self {
             Self::Place {
                 loc: _,
@@ -125,7 +126,8 @@ impl Turn {
                 loc: _,
                 player,
                 dir: _,
-                stacks: _,
+                total: _,
+                drops: _,
             } => *player,
         }
     }
@@ -185,22 +187,24 @@ impl Board {
                 loc,
                 player,
                 dir,
-                stacks,
+                total,
+                drops,
             } => {
-                // Stacks is nonempty
-                if !(stacks.len() > 0) {
+                // Drops is nonempty
+                if !(drops.len() > 0) {
                     return false;
                 }
-                // Stacks starts at most the carry limit
-                if !(stacks[0] > 0 && stacks[0] <= self.size()) {
+                // Total is at most the carry limit
+                if !(*total <= self.size()) {
                     return false;
                 }
+                // Total is less than is there
                 // Doesn't pick up more than is there
-                if !(stacks[0] <= self[*loc].len()) {
+                if !(*total <= self[*loc].len()) {
                     return false;
                 }
-                // Stacks strictly decreases and stays above 0
-                if !(stacks.windows(2).all(|s| s[0] > 0 && s[0] > s[1])) {
+                // Drops sums to total
+                if !(drops.iter().sum::<usize>() == *total) {
                     return false;
                 }
                 // Starts on the board
@@ -208,7 +212,7 @@ impl Board {
                     return false;
                 }
                 // Doesn't leave the board
-                if !(self.valid_loc(loc.move_in_by(*dir, stacks.len()))) {
+                if !(self.valid_loc(loc.move_in_by(*dir, drops.len()))) {
                     return false;
                 }
                 // Top stone is correct player
@@ -218,11 +222,11 @@ impl Board {
                 }
                 // Only the capstone (alone) can crush walls, nothing can stack capstones
                 let mut next_loc = *loc;
-                for stack in stacks {
+                for drop in drops {
                     next_loc = next_loc.move_in(*dir);
                     if let Some(top_there) = self[next_loc].last() {
                         if matches!(top_there.typ, StoneType::Standing)
-                            && !(matches!(top_here.typ, StoneType::Capstone) && *stack == 1)
+                            && !(matches!(top_here.typ, StoneType::Capstone) && *drop == 1)
                         {
                             return false;
                         }
@@ -246,27 +250,22 @@ impl Board {
                 loc,
                 player: _,
                 dir,
-                stacks,
+                total,
+                drops,
             } => {
                 let stack_here = &mut self[*loc];
-                let mut held_stack = stack_here.split_off(stack_here.len() - stacks[0]);
+                let mut held_stack = stack_here.split_off(stack_here.len() - total);
                 let mut next_loc = *loc;
 
-                for stack in stacks[1..].iter() {
+                for drop in drops {
                     next_loc = next_loc.move_in(*dir);
-                    let new_held_stack = held_stack.split_off(held_stack.len() - stack);
+                    let new_held_stack = held_stack.split_off(*drop);
                     if let Some(stack_top) = self[next_loc].last_mut() {
                         stack_top.typ = StoneType::Flat
                     }
                     self[next_loc].append(&mut held_stack);
                     held_stack = new_held_stack;
                 }
-
-                next_loc = next_loc.move_in(*dir);
-                if let Some(stack_top) = self[next_loc].last_mut() {
-                    stack_top.typ = StoneType::Flat
-                }
-                self[next_loc].append(&mut held_stack);
             }
         }
     }
@@ -293,7 +292,7 @@ struct Reserve {
 }
 
 #[derive(Debug)]
-struct GameState {
+pub struct GameState {
     current_player: Player,
     board: Board,
     reserves: HashMap<Player, Reserve>,
@@ -310,7 +309,7 @@ impl fmt::Display for GameState {
 }
 
 impl GameState {
-    fn new(size: usize) -> GameState {
+    pub fn new(size: usize) -> GameState {
         let reserve = match size {
             3 => Reserve { reg: 10, cap: 0 },
             4 => Reserve { reg: 15, cap: 0 },
@@ -327,7 +326,7 @@ impl GameState {
         }
     }
 
-    fn valid_turn(&self, turn: &Turn) -> bool {
+    pub fn valid_turn(&self, turn: &Turn) -> bool {
         if !(turn.player() == self.current_player) {
             return false;
         }
@@ -353,7 +352,7 @@ impl GameState {
         self.board.valid_turn(turn)
     }
 
-    fn apply_turn(&mut self, turn: &Turn) -> bool {
+    pub fn apply_turn(&mut self, turn: &Turn) -> bool {
         if !(self.valid_turn(turn)) {
             return false;
         }
@@ -414,21 +413,24 @@ mod tests {
             loc: Loc { row: 0, col: 0 },
             player: Player::White,
             dir: Dir::South,
-            stacks: vec![1],
+            total: 1,
+            drops: vec![1],
         }));
         println!("{}", state);
         assert!(state.apply_turn(&Turn::Move {
             loc: Loc { row: 1, col: 1 },
             player: Player::Black,
             dir: Dir::West,
-            stacks: vec![1],
+            total: 1,
+            drops: vec![1],
         }));
         println!("{}", state);
         assert!(state.apply_turn(&Turn::Move {
             loc: Loc { row: 2, col: 0 },
             player: Player::White,
             dir: Dir::North,
-            stacks: vec![1],
+            total: 1,
+            drops: vec![1],
         }));
         println!("{}", state);
         assert!(state.apply_turn(&Turn::Place {
@@ -441,14 +443,16 @@ mod tests {
             loc: Loc { row: 1, col: 0 },
             player: Player::White,
             dir: Dir::East,
-            stacks: vec![4, 2, 1],
+            total: 4,
+            drops: vec![2, 1, 1],
         }));
         println!("{}", state);
         assert!(state.apply_turn(&Turn::Move {
             loc: Loc { row: 0, col: 3 },
             player: Player::Black,
             dir: Dir::South,
-            stacks: vec![1],
+            total: 1,
+            drops: vec![1],
         }));
         println!("{}", state);
     }
