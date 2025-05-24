@@ -1,7 +1,11 @@
 mod engine;
 mod fixed_aspect_ratio;
 
-use bevy::{ecs::spawn::SpawnIter, prelude::*};
+use bevy::{
+    color::palettes::css::{BLACK, GREEN, GREY, RED, WHITE},
+    ecs::spawn::SpawnIter,
+    prelude::*,
+};
 use fixed_aspect_ratio::{FixedAspectRatio, FixedAspectRatioPlugin};
 
 fn main() {
@@ -15,7 +19,9 @@ fn main() {
             ..default()
         }))
         .add_plugins(FixedAspectRatioPlugin)
+        .add_event::<MyButtonEvent>()
         .add_systems(Startup, setup)
+        .add_systems(Update, (generate_button_events, tile_interaction).chain())
         .run();
 }
 
@@ -71,7 +77,88 @@ fn tile() -> impl Bundle {
             ..default()
         },
         Button,
-        BackgroundColor(Color::WHITE),
+        MyButton::default(),
+        BackgroundColor(WHITE.into()),
         // BorderColor(Color::BLACK),
     )
+}
+
+#[derive(Component, Default)]
+#[require(Button)]
+struct MyButton {
+    last_interaction: Interaction,
+}
+
+/// Button events, representing transitions between `Interaction`s
+#[derive(Event)]
+struct MyButtonEvent {
+    entity: Entity,
+    action: MyButtonEventAction,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MyButtonEventAction {
+    /// Mouse started hovering this frame
+    /// None -> Hovered
+    Hovered,
+    /// Mouse stopped hovering this frame
+    /// Hovered -> None
+    Unhovered,
+    /// Mouse button pressed over the node this frame
+    /// Hovered -> Pressed, None -> Pressed
+    Pressed,
+    /// Mouse button released this frame (not over the node)
+    /// Pressed -> None
+    Released,
+    /// Node clicked this frame (mouse button was originally pressed
+    /// over this node, and then was released over this node)
+    /// Pressed -> Hovered
+    Clicked,
+}
+
+fn generate_button_events(
+    mut events: EventWriter<MyButtonEvent>,
+    query: Query<(Entity, &Interaction, &mut MyButton), Changed<Interaction>>,
+) {
+    for (entity, interaction, mut button) in query {
+        use Interaction::*;
+        match (button.last_interaction, *interaction) {
+            (None, Hovered) => Some(MyButtonEventAction::Hovered),
+            (Hovered, None) => Some(MyButtonEventAction::Unhovered),
+            (Hovered, Pressed) | (None, Pressed) => Some(MyButtonEventAction::Pressed),
+            (Pressed, None) => Some(MyButtonEventAction::Released),
+            (Pressed, Hovered) => Some(MyButtonEventAction::Clicked),
+            (Pressed, Pressed) | (Hovered, Hovered) | (None, None) => Option::None,
+        }
+        .map(|action| events.write(MyButtonEvent { entity, action }));
+        button.last_interaction = *interaction;
+    }
+}
+
+fn tile_interaction(
+    mut events: EventReader<MyButtonEvent>,
+    mut query: Query<&mut BackgroundColor, With<Tile>>,
+) {
+    for event in events.read() {
+        if let Ok(mut background_color) = query.get_mut(event.entity) {
+            use MyButtonEventAction::*;
+            match event.action {
+                Hovered => {
+                    background_color.0 = GREY.into();
+                }
+                Unhovered => {
+                    background_color.0 = WHITE.into();
+                }
+                Pressed => {
+                    background_color.0 = BLACK.into();
+                }
+                Released => {
+                    background_color.0 = RED.into();
+                }
+                Clicked => {
+                    background_color.0 = GREEN.into();
+                }
+            }
+        }
+    }
 }
